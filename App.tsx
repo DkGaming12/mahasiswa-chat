@@ -13,15 +13,14 @@ import {
   serverTimestamp, orderBy, limit 
 } from 'firebase/firestore';
 
-// --- PERBAIKAN KONFIGURASI (Sesuai Screenshot Mas Didi) ---
+// --- KONFIGURASI FIREBASE (VERSI BERSIH) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBK0be6JgLVWb71sspT8CLk3rbnzxjWnz4",
-  // Perhatikan baris di bawah ini, saya sesuaikan dengan ID di screenshot
   authDomain: "mahasiswa-chat-25e5d.firebaseapp.com",
   projectId: "mahasiswa-chat-25e5d",
   storageBucket: "mahasiswa-chat-25e5d.firebasestorage.app",
-  messagingSenderId: "991996803084",
-  appId: "1:991996803084:web:..." // Opsional, tapi biarkan firebase handle sisanya
+  messagingSenderId: "991996803084"
+  // Baris appId sudah dihapus agar tidak menyebabkan error
 };
 
 // Inisialisasi App
