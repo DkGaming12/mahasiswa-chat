@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, User, Plus, Check, X, LogOut, 
-  Search, Send, ArrowLeft, UserPlus, Clock, Users, Loader2 
+  Search, Send, ArrowLeft, UserPlus, Clock, Users, Loader2, WifiOff 
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -265,7 +265,7 @@ export default function App() {
             <div>
               <label className="text-sm font-medium text-gray-700">NIM</label>
               <input className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                value={nimInput} onChange={e => setNimInput(e.target.value.replace(/\D/g,''))} placeholder="Contoh: 60324067" />
+                value={nimInput} onChange={e => setNimInput(e.target.value.replace(/\D/g,''))} placeholder="Contoh: 12345678" />
             </div>
 
             {view === 'register' && (
@@ -273,12 +273,12 @@ export default function App() {
                 <div>
                   <label className="text-sm font-medium text-gray-700">Nama Lengkap</label>
                   <input className="w-full px-4 py-2 border rounded-lg outline-none" 
-                    value={nameInput} onChange={e => setNameInput(e.target.value)} placeholder="Didi Purnomo" />
+                    value={nameInput} onChange={e => setNameInput(e.target.value)} placeholder="Nama Lengkap Kamu" />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Jurusan</label>
                   <input className="w-full px-4 py-2 border rounded-lg outline-none" 
-                    value={jurusanInput} onChange={e => setJurusanInput(e.target.value)} placeholder="Informatika" />
+                    value={jurusanInput} onChange={e => setJurusanInput(e.target.value)} placeholder="Contoh: Informatika" />
                 </div>
               </>
             )}
