@@ -13,13 +13,15 @@ import {
   serverTimestamp, orderBy, limit 
 } from 'firebase/firestore';
 
-// --- KONFIGURASI FIREBASE ---
+// --- PERBAIKAN KONFIGURASI (Sesuai Screenshot Mas Didi) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBK0be6JgLVWb71sspT8CLk3rbnzxjWnz4",
-  authDomain: "mahasiswa-chat-uin.firebaseapp.com",
-  projectId: "mahasiswa-chat-uin",
+  // Perhatikan baris di bawah ini, saya sesuaikan dengan ID di screenshot
+  authDomain: "mahasiswa-chat-25e5d.firebaseapp.com",
+  projectId: "mahasiswa-chat-25e5d",
   storageBucket: "mahasiswa-chat-25e5d.firebasestorage.app",
   messagingSenderId: "991996803084",
+  appId: "1:991996803084:web:..." // Opsional, tapi biarkan firebase handle sisanya
 };
 
 // Inisialisasi App
@@ -95,8 +97,6 @@ export default function App() {
         console.error("DEBUG: Gagal Auth:", error);
         setConnectionStatus(`Gagal Konek: ${error.message}`);
         setIsError(true);
-        // Paksa alert biar Mas Didi tahu errornya apa
-        alert(`ERROR KONEKSI: ${error.message}`);
       });
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -166,8 +166,6 @@ export default function App() {
   };
 
   const handleRegister = async () => {
-    console.log("DEBUG: Tombol Register ditekan");
-    
     // 1. Validasi Input
     if (!nimInput || !nameInput || !passwordInput) {
       alert("Mas Didi, tolong isi semua kolomnya ya!");
@@ -182,7 +180,6 @@ export default function App() {
 
     setIsLoading(true);
     try {
-      console.log("DEBUG: Mulai cek user di database...");
       const userDocRef = doc(db, 'users', nimInput); 
       const snap = await getDoc(userDocRef);
       
@@ -192,7 +189,6 @@ export default function App() {
         return;
       }
 
-      console.log("DEBUG: User belum ada, menyimpan data...");
       const newUser: UserProfile = {
         nim: nimInput,
         name: nameInput,
@@ -202,14 +198,13 @@ export default function App() {
       };
 
       await setDoc(userDocRef, newUser);
-      console.log("DEBUG: Berhasil simpan!");
       
       setCurrentUser(newUser);
       setView('main');
       alert("Pendaftaran BERHASIL! Selamat datang Mas Didi.");
     } catch (error: any) {
       console.error("Error Register:", error);
-      alert(`GAGAL DAFTAR: ${error.message}\n\nCoba cek Rules di Firebase Console lagi.`);
+      alert(`GAGAL DAFTAR: ${error.message}\n\nCek konfigurasi Firebase dan Rules.`);
     }
     setIsLoading(false);
   };
@@ -244,7 +239,6 @@ export default function App() {
 
       setCurrentUser(userData);
       setView('main');
-      // showToast(`Selamat datang, ${userData.name}`, "success");
     } catch (error: any) {
       console.error("Error Login:", error);
       alert(`Gagal Login: ${error.message}`);
@@ -252,7 +246,7 @@ export default function App() {
     setIsLoading(false);
   };
 
-  // ... Fitur chat lainnya (disingkat biar muat, tidak berubah) ...
+  // ... Fitur lainnya ...
   const sendFriendRequest = async () => {
     if (!currentUser) return;
     try {
@@ -293,7 +287,7 @@ export default function App() {
       <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
         <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl">
           
-          {/* DEBUG STATUS BAR (Biar ketahuan errornya) */}
+          {/* DEBUG STATUS BAR */}
           <div className={`mb-4 p-2 text-xs text-center rounded border ${isError ? 'bg-red-100 text-red-700 border-red-300' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
             <strong>Status System:</strong> {connectionStatus}
           </div>
@@ -334,7 +328,6 @@ export default function App() {
                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="********" />
             </div>
 
-            {/* TOMBOL SAYA BUKA PAKSA (Tidak ada 'disabled' kecuali loading) */}
             <button onClick={view === 'login' ? handleLogin : handleRegister} disabled={isLoading}
               className={`w-full font-bold py-3 rounded-lg transition-all flex justify-center items-center gap-2 ${isLoading ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'}`}>
               {isLoading ? <Loader2 className="animate-spin" /> : (view === 'login' ? 'Masuk' : 'Daftar Akun')}
@@ -354,7 +347,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
-      {/* Tampilan Chat Utama (Sama) */}
       <div className={`w-full md:w-1/3 bg-white border-r border-gray-200 flex flex-col ${activeChatNim ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
           <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold">{currentUser?.name.charAt(0)}</div><div><h2 className="font-bold text-gray-800">{currentUser?.name}</h2><p className="text-xs text-gray-500">{currentUser?.nim}</p></div></div>
