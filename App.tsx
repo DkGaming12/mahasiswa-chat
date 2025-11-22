@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, User, Plus, Check, X, LogOut, 
-  Search, Send, ArrowLeft, Camera, Image as ImageIcon, Video as VideoIcon, Trash2, Loader2, Paperclip 
+  Search, Send, ArrowLeft, Camera as CameraIcon, Image as ImageIcon, Video as VideoIcon, Trash2, Loader2, Paperclip, CheckCheck 
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -10,10 +10,12 @@ import {
 import { 
   getFirestore, collection, doc, setDoc, getDoc, 
   query, where, onSnapshot, addDoc, updateDoc, 
-  serverTimestamp, orderBy, limit 
+  serverTimestamp, orderBy, limit, writeBatch 
 } from 'firebase/firestore';
 
-// --- KONFIGURASI FIREBASE ---
+// --- PENTING: DI LAPTOP, HAPUS TANDA '//' DI BAWAH INI ---
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
+
 const firebaseConfig = {
   apiKey: "AIzaSyBK0be6JgLVWb71sspT8CLk3rbnzxjWnz4",
   authDomain: "mahasiswa-chat-25e5d.firebaseapp.com",
@@ -26,6 +28,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+
 // --- TYPES ---
 interface UserProfile {
   nim: string; name: string; password?: string; uid: string; jurusan?: string; photoUrl?: string; 
@@ -37,8 +40,83 @@ interface FriendRequest {
   id: string; fromNim: string; fromName: string; toNim: string; status: 'pending' | 'accepted' | 'rejected'; timestamp: any;
 }
 interface Message {
-  id: string; senderNim: string; text: string; timestamp: any; mediaUrl?: string; mediaType?: 'image'|'video';
+  id: string; senderNim: string; text: string; timestamp: any; mediaUrl?: string; mediaType?: 'image'|'video'|'audio'|'voice'; read?: boolean;
 }
+
+// --- COMPONENT CHAT ITEM (LOGIKA ALA WHATSAPP) ---
+const ChatListItem = ({ friend, currentUser, onClick, isActive }: any) => {
+  const [lastMsg, setLastMsg] = useState<Message | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser || !friend) return;
+
+    const chatId = [currentUser.nim, friend.nim].sort().join('_');
+    // Ambil 50 pesan terakhir untuk cek unread
+    const q = query(collection(db, `chats_${chatId}`), orderBy('timestamp', 'desc'), limit(50));
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map(d => d.data() as Message);
+      if (msgs.length > 0) {
+        setLastMsg(msgs[0]); // Pesan paling baru
+        // Hitung pesan yang dikirim TEMAN dan status read-nya false
+        const unread = msgs.filter(m => m.senderNim !== currentUser.nim && !m.read).length;
+        setUnreadCount(unread);
+      }
+    });
+    return () => unsub();
+  }, [friend, currentUser]);
+
+  if (!friend) return null;
+
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return '';
+    // Format Jam:Menit (Contoh: 14:30)
+    return new Date(timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+  };
+
+  return (
+    <div onClick={onClick} className={`flex items-center gap-3 p-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors ${isActive ? 'bg-green-50' : ''}`}>
+      <div className="relative">
+        <img src={friend.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${friend.name}`} className="w-12 h-12 rounded-full bg-gray-200 border border-gray-200 object-cover" alt="avatar" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-center mb-1">
+          <h3 className="font-bold text-gray-900 text-sm truncate">{friend.name}</h3>
+          {/* Waktu berwarna Hijau jika ada pesan baru */}
+          <span className={`text-[11px] ${unreadCount > 0 ? 'text-green-600 font-bold' : 'text-gray-400'}`}>
+            {lastMsg ? formatTime(lastMsg.timestamp) : ''}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-1 text-sm text-gray-500 truncate pr-2 w-full">
+            {/* Tanda Centang (Hanya jika pesan terakhir dari SAYA) */}
+            {lastMsg && lastMsg.senderNim === currentUser?.nim && (
+              <span>
+                {lastMsg.read ? (
+                  <CheckCheck size={16} className="text-blue-500" /> // Biru (Dibaca)
+                ) : (
+                  <CheckCheck size={16} className="text-gray-400" /> // Abu (Terkirim)
+                )}
+              </span>
+            )}
+            
+            <span className={`truncate ${unreadCount > 0 ? 'font-bold text-gray-800' : ''}`}>
+              {lastMsg ? (lastMsg.mediaUrl ? (lastMsg.mediaType === 'image' ? '📷 Foto' : '🎥 Video') : lastMsg.text) : 'Ketuk untuk chat'}
+            </span>
+          </div>
+          
+          {/* Lingkaran Hijau (Counter) */}
+          {unreadCount > 0 && (
+            <div className="min-w-[20px] h-5 bg-green-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full px-1.5 shadow-sm animate-bounce-short">
+              {unreadCount}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -56,12 +134,10 @@ export default function App() {
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [feeds, setFeeds] = useState<UserStatus[]>([]);
   
-  // Form states
   const [form, setForm] = useState({ nim: '', pass: '', name: '', major: '' });
   const [search, setSearch] = useState('');
   const [txt, setTxt] = useState('');
   
-  // Status creation & Media
   const [statusTxt, setStatusTxt] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
   const [MediaType, setMediaType] = useState<'image' | 'video' | null>(null);
@@ -70,13 +146,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const dummyRef = useRef<HTMLDivElement>(null);
-  
-  // INPUT FILE REFS (Jalan Ninja untuk Web)
-  const profileFileRef = useRef<HTMLInputElement>(null); 
-  const statusFileRef = useRef<HTMLInputElement>(null); 
+  const fileRef = useRef<HTMLInputElement>(null); 
   const chatFileRef = useRef<HTMLInputElement>(null);
+  const profileFileRef = useRef<HTMLInputElement>(null);
 
-  // Auth Init
   useEffect(() => {
     const init = async () => {
       try { await signInAnonymously(auth); setSysStatus("Online ✅"); setIsError(false); } 
@@ -86,7 +159,7 @@ export default function App() {
     return onAuthStateChanged(auth, (u) => { if (u) setUser(u); });
   }, []);
 
-  // Listeners
+  // Fetch Profile & Friends
   useEffect(() => {
     if (!profile) return;
     const unsubReq = onSnapshot(query(collection(db, 'requests'), where('toNim', '==', profile.nim)), (snap) => setReqs(snap.docs.map(d => ({ id: d.id, ...d.data() } as FriendRequest)).filter(r => r.status === 'pending')));
@@ -98,83 +171,93 @@ export default function App() {
     return () => { unsubReq(); unsubFriend(); unsubFeed(); };
   }, [profile]);
 
+  // --- LOGIKA CHAT ROOM & READ RECEIPT (CENTANG BIRU) ---
   useEffect(() => {
     if (!profile || !chatId) return;
     const id = [profile.nim, chatId].sort().join('_');
-    return onSnapshot(query(collection(db, `chats_${id}`), orderBy('timestamp', 'asc'), limit(50)), (snap) => {
-      setMsgs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Message)));
+    
+    const unsub = onSnapshot(query(collection(db, `chats_${id}`), orderBy('timestamp', 'asc'), limit(50)), (snap) => {
+      const loadedMsgs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Message));
+      setMsgs(loadedMsgs);
       setTimeout(() => dummyRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      
+      // --- DETEKSI PESAN YANG BELUM DIBACA ---
+      const unreadMsgs = snap.docs.filter(doc => { 
+        const m = doc.data() as Message; 
+        // Pesan dari TEMAN yang statusnya masih belum dibaca (read: false)
+        return m.senderNim !== profile.nim && !m.read; 
+      });
+
+      // --- UPDATE JADI DIBACA (CENTANG BIRU) ---
+      if (unreadMsgs.length > 0) {
+        const batch = writeBatch(db);
+        unreadMsgs.forEach(doc => batch.update(doc.ref, { read: true }));
+        batch.commit().catch(console.error);
+      }
     });
+    return () => unsub();
   }, [profile, chatId]);
 
-  // --- HANDLERS FILE (WEB COMPATIBLE) ---
+  // --- HANDLERS (File, Camera, Auth, etc) Tetap Sama ---
   const readFile = (file: File, callback: (base64: string, type: 'image'|'video') => void) => {
-    // Batas 1.5MB biar Firestore gak marah
     if (file.size > 1.5 * 1024 * 1024) return alert("File terlalu besar (Max 1.5MB)");
-    
     const reader = new FileReader();
     reader.onload = (ev) => callback(ev.target?.result as string, file.type.startsWith('video') ? 'video' : 'image');
     reader.readAsDataURL(file);
   };
 
-  // 1. GANTI FOTO PROFIL
   const handleProfileFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f && profile) {
-      readFile(f, async (b64) => {
-        await updateDoc(doc(db, 'users', profile.nim), { photoUrl: b64 });
-        setProfile({ ...profile, photoUrl: b64 });
-        setEditMode(false);
-        alert("Foto profil berhasil diganti!");
-      });
-    }
+    if (f && profile) readFile(f, async (b64) => { await updateDoc(doc(db, 'users', profile.nim), { photoUrl: b64 }); setProfile({ ...profile, photoUrl: b64 }); setEditMode(false); alert("Foto profil diganti!"); });
   };
 
-  // 2. STATUS FILE
-  const handleStatusFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) readFile(f, (b64, type) => { setPreview(b64); setMediaType(type); });
+  const triggerChangeProfile = async () => {
+    try {
+      // @ts-ignore
+      const image = await getCamera().getPhoto({ quality: 50, allowEditing: false, resultType: 'base64', source: 'photos', width: 300 });
+      if (image.dataUrl && profile) { await updateDoc(doc(db, 'users', profile.nim), { photoUrl: image.dataUrl }); setProfile({ ...profile, photoUrl: image.dataUrl }); setEditMode(false); alert("Foto profil diganti!"); }
+    } catch (e) { profileFileRef.current?.click(); }
   };
 
+  const handleStatusFile = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) readFile(f, (b64, type) => { setPreview(b64); setMediaType(type); }); };
+  
   const sendStatus = async () => {
     if ((!statusTxt.trim() && !preview) || !profile) return;
     try {
-      await addDoc(collection(db, 'statuses'), {
-        userNim: profile.nim, userName: profile.name, text: statusTxt, timestamp: serverTimestamp(),
-        photoUrl: profile.photoUrl || '', mediaUrl: preview || null, mediaType: MediaType || null
-      });
+      await addDoc(collection(db, 'statuses'), { userNim: profile.nim, userName: profile.name, text: statusTxt, timestamp: serverTimestamp(), photoUrl: profile.photoUrl || '', mediaUrl: preview || null, mediaType: MediaType || null });
       setStatusTxt(''); setPreview(null); setMediaType(null);
     } catch (e) { alert("Gagal upload status"); }
   };
 
-  // 3. CHAT FILE
   const handleChatFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f && profile && chatId) {
-      readFile(f, async (b64, type) => {
-        const id = [profile.nim, chatId].sort().join('_');
-        await addDoc(collection(db, `chats_${id}`), {
-          senderNim: profile.nim, text: '', timestamp: serverTimestamp(), mediaUrl: b64, mediaType: type
-        });
-      });
-    }
+    if (f && profile && chatId) readFile(f, async (b64, type) => { const id = [profile.nim, chatId].sort().join('_'); await addDoc(collection(db, `chats_${id}`), { senderNim: profile.nim, text: '', timestamp: serverTimestamp(), mediaUrl: b64, mediaType: type, read: false }); });
   };
 
-  // --- AUTH ---
+  const takeChatPhoto = async () => {
+    if (!profile || !chatId) return;
+    try {
+      // @ts-ignore
+      const image = await getCamera().getPhoto({ quality: 50, allowEditing: false, resultType: 'base64', source: 'camera', width: 500 });
+      if (image.dataUrl) {
+        const id = [profile.nim, chatId].sort().join('_');
+        await addDoc(collection(db, `chats_${id}`), { senderNim: profile.nim, text: '', timestamp: serverTimestamp(), mediaUrl: image.dataUrl, mediaType: 'image', read: false });
+      }
+    } catch (e) { console.log("Kamera batal"); }
+  };
+
   const doAuth = async (isReg: boolean) => {
     if (!form.nim || !form.pass || (isReg && !form.name)) return alert("Lengkapi data");
     setLoading(true);
     try {
-      const ref = doc(db, 'users', form.nim);
-      const snap = await getDoc(ref);
+      const ref = doc(db, 'users', form.nim); const snap = await getDoc(ref);
       if (isReg) {
         if (snap.exists()) throw new Error("NIM sudah ada");
         const data: UserProfile = { nim: form.nim, name: form.name, password: form.pass, jurusan: form.major, uid: user.uid, photoUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${form.name}` };
         await setDoc(ref, data); setProfile(data);
       } else {
         if (!snap.exists()) throw new Error("NIM tidak ditemukan");
-        const data = snap.data() as UserProfile;
-        if (data.password !== form.pass) throw new Error("Password salah");
+        const data = snap.data() as UserProfile; if (data.password !== form.pass) throw new Error("Password salah");
         setProfile(data);
       }
       setView('main');
@@ -185,10 +268,7 @@ export default function App() {
   const sendReq = async () => {
     if (!search || !profile || search === profile.nim) return;
     const target = await getDoc(doc(db, 'users', search));
-    if (target.exists()) {
-      await addDoc(collection(db, 'requests'), { fromNim: profile.nim, fromName: profile.name, toNim: search, status: 'pending', timestamp: serverTimestamp() });
-      setSearch(''); setTab('chats'); alert("Request terkirim");
-    } else alert("User tidak ditemukan");
+    if (target.exists()) { await addDoc(collection(db, 'requests'), { fromNim: profile.nim, fromName: profile.name, toNim: search, status: 'pending', timestamp: serverTimestamp() }); setSearch(''); setTab('chats'); alert("Request terkirim"); } else alert("User tidak ditemukan");
   };
 
   const reply = async (id: string, status: 'accepted'|'rejected') => await updateDoc(doc(db, 'requests', id), { status });
@@ -197,14 +277,12 @@ export default function App() {
     if (!txt.trim() || !chatId || !profile) return;
     const id = [profile.nim, chatId].sort().join('_');
     const t = txt; setTxt('');
-    await addDoc(collection(db, `chats_${id}`), { senderNim: profile.nim, text: t, timestamp: serverTimestamp() });
+    // read: false artinya belum dibaca
+    await addDoc(collection(db, `chats_${id}`), { senderNim: profile.nim, text: t, timestamp: serverTimestamp(), read: false });
   };
 
-  const Avatar = ({ seed, url }: { seed: string, url?: string }) => (
-    <img src={url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`} className="w-10 h-10 rounded-full bg-gray-200 object-cover border" alt="avt" />
-  );
+  const Avatar = ({ seed, url }: { seed: string, url?: string }) => ( <img src={url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`} className="w-10 h-10 rounded-full bg-gray-200 object-cover border" alt="avt" /> );
 
-  // --- VIEWS ---
   if (view !== 'main') {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
@@ -225,12 +303,10 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* INPUTS FILE TERSEMBUNYI (Jalan Ninja Web) */}
       <input type="file" ref={profileFileRef} className="hidden" accept="image/*" onChange={handleProfileFile} />
       <input type="file" ref={statusFileRef} className="hidden" accept="image/*,video/*" onChange={handleStatusFile} />
       <input type="file" ref={chatFileRef} className="hidden" accept="image/*,video/*" onChange={handleChatFile} />
 
-      {/* SIDEBAR */}
       <div className={`w-full md:w-1/3 bg-white border-r flex flex-col ${chatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setEditMode(!editMode)}>
@@ -242,10 +318,7 @@ export default function App() {
 
         {editMode && (
           <div className="p-4 bg-green-50 border-b space-y-2">
-            {/* Tombol ini langsung membuka File Explorer Web/HP */}
-            <button onClick={() => profileFileRef.current?.click()} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2 hover:bg-green-100">
-              <ImageIcon size={16}/> Ganti Foto Profil
-            </button>
+            <button onClick={triggerChangeProfile} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2 hover:bg-green-100"><ImageIcon size={16}/> Ganti Foto Profil</button>
           </div>
         )}
         
@@ -256,68 +329,69 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto bg-white">
-          {/* TAB STATUS */}
+          {tab === 'chats' && (
+            <div>
+              {friends.length === 0 ? <div className="text-center p-8 text-gray-400 text-sm">Belum ada chat.</div> : friends.map(f => {
+                const p = f.fromNim===profile?.nim ? {nim:f.toNim, name:f.toNim, photoUrl:''} : {nim:f.fromNim, name:f.fromName, photoUrl:''};
+                return (
+                  <ChatListItem 
+                    key={f.id} 
+                    friend={p} 
+                    currentUser={profile} 
+                    onClick={() => { setChatId(p.nim); setChatName(p.name); }}
+                    isActive={chatId === p.nim}
+                  />
+                )
+              })}
+            </div>
+          )}
+
+          {/* TAB STATUS & LAINNYA SAMA SEPERTI SEBELUMNYA */}
           {tab === 'status' && (
             <div>
               <div className="p-4 border-b bg-gray-50 space-y-3">
                 <div className="flex gap-3"><Avatar seed={profile?.name||''} url={profile?.photoUrl} /><input className="flex-1 bg-transparent text-sm outline-none" placeholder="Buat status..." value={statusTxt} onChange={e=>setStatusTxt(e.target.value)} /></div>
                 {preview && <div className="relative bg-black rounded-lg h-32 flex justify-center items-center">{MediaType==='video'?<video src={preview} controls className="h-full"/>:<img src={preview} className="h-full object-contain" alt="pv"/>}<button onClick={()=>{setPreview(null);setMediaType(null)}} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full"><X size={12}/></button></div>}
                 <div className="flex justify-between pt-2">
-                  {/* Tombol Attach Media */}
-                  <button onClick={()=>statusFileRef.current?.click()} className="text-gray-500"><ImageIcon size={20}/></button>
+                  <div className="flex gap-2"><button onClick={()=>statusFileRef.current?.click()} className="text-gray-500"><ImageIcon size={20}/></button></div>
                   <button onClick={sendStatus} disabled={!statusTxt && !preview} className="bg-green-600 text-white px-4 py-1 rounded-full text-xs font-bold">KIRIM</button>
                 </div>
               </div>
-              <div className="p-2 space-y-4">
-                {feeds.map(s => (
-                  <div key={s.id} className="flex gap-3 p-2 border-b">
-                    <div className="p-0.5 border-2 border-green-500 rounded-full h-fit"><Avatar seed={s.userName} url={s.photoUrl} /></div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-sm">{s.userName}</h4>
-                      <p className="text-xs text-gray-400 mb-2">{s.timestamp?.seconds ? new Date(s.timestamp.seconds*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'Just now'}</p>
-                      {s.mediaUrl && <div className="mb-2 bg-black rounded h-48 flex justify-center">{s.mediaType==='video'?<video src={s.mediaUrl} controls className="h-full"/>:<img src={s.mediaUrl} className="h-full object-contain" alt="c"/>}</div>}
-                      <p className="text-sm">{s.text}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="p-2 space-y-4">{feeds.map(s => (<div key={s.id} className="flex gap-3 p-2 border-b"><div className="p-0.5 border-2 border-green-500 rounded-full h-fit"><Avatar seed={s.userName} url={s.photoUrl} /></div><div className="flex-1"><h4 className="font-bold text-sm">{s.userName}</h4><p className="text-xs text-gray-400 mb-2">{s.timestamp?.seconds ? new Date(s.timestamp.seconds*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'Just now'}</p>{s.mediaUrl && <div className="mb-2 bg-black rounded h-48 flex justify-center">{s.mediaType==='video'?<video src={s.mediaUrl} controls className="h-full"/>:<img src={s.mediaUrl} className="h-full object-contain" alt="c"/>}</div>}<p className="text-sm">{s.text}</p></div></div>))}</div>
             </div>
           )}
-
-          {tab === 'chats' && friends.map(f => {
-            const p = f.fromNim===profile?.nim ? {id:f.toNim, n:`Mahasiswa ${f.toNim}`} : {id:f.fromNim, n:f.fromName};
-            return (
-              <div key={f.id} onClick={()=>{setChatId(p.id);setChatName(p.n)}} className="p-3 flex items-center gap-3 hover:bg-gray-50 cursor-pointer border-b">
-                <Avatar seed={p.n} /><div><h3 className="font-semibold text-sm">{p.n}</h3><p className="text-xs text-gray-500">Tap to chat</p></div>
-              </div>
-            )
-          })}
 
           {tab === 'add' && (<div className="p-4 flex gap-2"><input className="flex-1 border rounded px-3 text-sm" placeholder="Cari NIM..." value={search} onChange={e=>setSearch(e.target.value)} /><button onClick={sendReq} className="bg-green-600 text-white p-2 rounded"><Send size={18}/></button></div>)}
           {tab === 'requests' && reqs.map(r => (<div key={r.id} className="p-3 border-b flex justify-between items-center"><div><p className="font-bold text-sm">{r.fromName}</p><p className="text-xs">{r.fromNim}</p></div><div className="flex gap-2"><button onClick={()=>reply(r.id,'rejected')} className="text-red-500"><X/></button><button onClick={()=>reply(r.id,'accepted')} className="text-green-500"><Check/></button></div></div>))}
         </div>
       </div>
 
-      {/* CHAT ROOM */}
+      {/* CHAT ROOM (Tampilan WA Style) */}
       <div className={`flex-1 flex flex-col bg-[#e5ded8] ${!chatId ? 'hidden md:flex' : 'flex'}`}>
         {!chatId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400"><p>Pilih teman untuk memulai percakapan</p></div>
         ) : (
           <>
             <div className="bg-gray-100 p-2 border-b flex items-center gap-3 shadow-sm">
-              <button onClick={()=>setChatId(null)} className="md:hidden"><ArrowLeft/></button><Avatar seed={chatName} /><div className="flex-1"><h3 className="font-bold text-sm">{chatName}</h3><p className="text-xs">{chatId}</p></div>
+              <button onClick={()=>setChatId(null)} className="md:hidden"><ArrowLeft/></button><Avatar seed={chatName} /><div className="flex-1"><h3 className="font-bold text-sm">{chatName}</h3><p className="text-xs text-gray-500">Online</p></div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {msgs.map(m => (
                 <div key={m.id} className={`flex ${m.senderNim===profile?.nim?'justify-end':'justify-start'}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-lg text-sm shadow-sm ${m.senderNim===profile?.nim?'bg-[#d9fdd3]':'bg-white'}`}>
-                    {m.mediaUrl && (
-                      <div className="mb-1 rounded overflow-hidden">
-                        {m.mediaType === 'video' ? <video src={m.mediaUrl} controls className="max-w-full max-h-60"/> : <img src={m.mediaUrl} className="max-w-full max-h-60" alt="media"/>}
-                      </div>
-                    )}
+                    {m.mediaUrl && <div className="mb-1 rounded overflow-hidden">{m.mediaType === 'video' ? <video src={m.mediaUrl} controls className="max-w-full max-h-60"/> : <img src={m.mediaUrl} className="max-w-full max-h-60" alt="media"/>}</div>}
                     {m.text && <p>{m.text}</p>}
-                    <span className="text-[10px] text-gray-500 block text-right">{m.timestamp?.seconds?new Date(m.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'...'}</span>
+                    
+                    {/* FOOTER PESAN: Jam & Centang */}
+                    <div className="flex justify-end items-center gap-1 mt-1">
+                      <span className="text-[10px] text-gray-500">{m.timestamp?.seconds?new Date(m.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'...'}</span>
+                      {/* Tampilkan Centang Cuma di Pesan Kita */}
+                      {m.senderNim === profile?.nim && (
+                        m.read ? 
+                        <CheckCheck size={14} className="text-blue-500" /> : // Dibaca (Biru)
+                        <CheckCheck size={14} className="text-gray-400" />   // Terkirim (Abu)
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -325,6 +399,7 @@ export default function App() {
             </div>
             <div className="p-2 bg-gray-100 flex gap-2 items-center">
               <button onClick={() => chatFileRef.current?.click()} className="text-gray-500 hover:text-green-600"><Paperclip size={20}/></button>
+              <button onClick={takeChatPhoto} className="text-gray-500 hover:text-green-600"><CameraIcon size={20}/></button>
               <input className="flex-1 px-4 py-2 rounded-full border-none text-sm" value={txt} onChange={e=>setTxt(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Tulis pesan..." />
               <button onClick={send} className="bg-green-600 text-white p-2 rounded-full"><Send size={18}/></button>
             </div>
