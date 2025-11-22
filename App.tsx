@@ -13,7 +13,7 @@ import {
   serverTimestamp, orderBy, limit, writeBatch 
 } from 'firebase/firestore';
 
-// PENTING: Hapus tanda '//' di depan baris ini jika ingin menggunakan kamera HP (di Android Studio)
+// PENTING: Jika di Android Studio, HAPUS tanda '//' di depan baris ini dan install pluginnya:
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
 
 const firebaseConfig = {
