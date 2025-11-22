@@ -100,13 +100,14 @@ export default function App() {
   const [sysStatus, setSysStatus] = useState<string>('Connecting...');
   
   const [view, setView] = useState<'login' | 'register' | 'main'>('login');
-  const [tab, setTab] = useState<'chats' | 'add' | 'requests'>('chats');
+  const [tab, setTab] = useState<'chats' | 'status' | 'add' | 'requests'>('chats');
   const [chatId, setChatId] = useState<string | null>(null);
   const [chatName, setChatName] = useState<string>('');
   
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
   const [friends, setFriends] = useState<FriendRequest[]>([]);
   const [msgs, setMsgs] = useState<Message[]>([]);
+  const [feeds, setFeeds] = useState<UserStatus[]>([]);
   
   const [form, setForm] = useState({ nim: '', pass: '', name: '', major: '' });
   const [search, setSearch] = useState('');
@@ -114,10 +115,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   
   const [editMode, setEditMode] = useState(false); 
+  const [statusTxt, setStatusTxt] = useState('');
+  const [preview, setPreview] = useState<string | null>(null);
+  const [MediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   
   const dummyRef = useRef<HTMLDivElement>(null);
   const profileFileRef = useRef<HTMLInputElement>(null);
   const chatFileRef = useRef<HTMLInputElement>(null);
+  const statusFileRef = useRef<HTMLInputElement>(null);
 
   // --- HANDLER FILE (BASE64) ---
   const readFile = (file: File, callback: (base64: string, type: 'image'|'video') => void) => {
@@ -165,6 +170,20 @@ export default function App() {
     } catch (e) { alert("Gagal mengambil foto. Pastikan izin kamera diberikan."); }
   };
 
+  // --- UPLOAD STATUS ---
+  const handleStatusFile = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) readFile(f, (b64, type) => { setPreview(b64); setMediaType(type); }); };
+  
+  const sendStatus = async () => {
+    if ((!statusTxt.trim() && !preview) || !profile) return;
+    try {
+      await addDoc(collection(db, 'statuses'), { 
+        userNim: profile.nim, userName: profile.name, text: statusTxt, timestamp: serverTimestamp(), 
+        photoUrl: profile.photoUrl || '', mediaUrl: preview || null, mediaType: MediaType || null 
+      });
+      setStatusTxt(''); setPreview(null); setMediaType(null);
+    } catch (e) { alert("Gagal upload status"); }
+  };
+
   // --- AUTH & LISTENERS ---
   useEffect(() => {
     signInAnonymously(auth).then(() => setSysStatus("Online ✅")).catch(e => setSysStatus(`Error: ${e.message}`));
@@ -178,7 +197,8 @@ export default function App() {
       const all = s.docs.map(d => ({ id: d.id, ...d.data() } as FriendRequest));
       setFriends(all.filter(r => r.fromNim === profile.nim || r.toNim === profile.nim));
     });
-    return () => { unsubReq(); unsubFriend(); };
+    const unsubFeed = onSnapshot(query(collection(db, 'statuses'), orderBy('timestamp', 'desc'), limit(20)), s => setFeeds(s.docs.map(d => ({ id: d.id, ...d.data() } as UserStatus))));
+    return () => { unsubReq(); unsubFriend(); unsubFeed(); };
   }, [profile]);
 
   useEffect(() => {
@@ -258,6 +278,7 @@ export default function App() {
     <div className="flex h-screen bg-gray-100">
       <input type="file" ref={profileFileRef} className="hidden" accept="image/*" onChange={handleProfileFile} />
       <input type="file" ref={chatFileRef} className="hidden" accept="image/*,video/*" onChange={handleChatFile} />
+      <input type="file" ref={statusFileRef} className="hidden" accept="image/*,video/*" onChange={handleStatusFile} />
 
       <div className={`w-full md:w-1/3 bg-white border-r flex flex-col ${chatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
@@ -275,7 +296,7 @@ export default function App() {
         )}
         
         <div className="flex border-b bg-white">
-          {['chats', 'add', 'requests'].map(t => (
+          {['chats', 'status', 'add', 'requests'].map(t => (
             <button key={t} onClick={() => setTab(t as any)} className={`flex-1 py-3 text-xs font-bold uppercase ${tab===t?'text-green-600 border-b-2 border-green-600':'text-gray-400'}`}>{t}</button>
           ))}
         </div>
@@ -295,6 +316,20 @@ export default function App() {
                   />
                 )
               })}
+            </div>
+          )}
+
+          {tab === 'status' && (
+            <div>
+              <div className="p-4 border-b bg-gray-50 space-y-3">
+                <div className="flex gap-3"><Avatar seed={profile?.name||''} url={profile?.photoUrl} /><input className="flex-1 bg-transparent text-sm outline-none" placeholder="Buat status..." value={statusTxt} onChange={e=>setStatusTxt(e.target.value)} /></div>
+                {preview && <div className="relative bg-black rounded-lg h-32 flex justify-center items-center">{MediaType==='video'?<video src={preview} controls className="h-full"/>:<img src={preview} className="h-full object-contain" alt="pv"/>}<button onClick={()=>{setPreview(null);setMediaType(null)}} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full"><X size={12}/></button></div>}
+                <div className="flex justify-between pt-2">
+                  <div className="flex gap-2"><button onClick={()=>statusFileRef.current?.click()} className="text-gray-500"><ImageIcon size={20}/></button></div>
+                  <button onClick={sendStatus} disabled={!statusTxt && !preview} className="bg-green-600 text-white px-4 py-1 rounded-full text-xs font-bold">KIRIM</button>
+                </div>
+              </div>
+              <div className="p-2 space-y-4">{feeds.map(s => (<div key={s.id} className="flex gap-3 p-2 border-b"><div className="p-0.5 border-2 border-green-500 rounded-full h-fit"><Avatar seed={s.userName} url={s.photoUrl} /></div><div className="flex-1"><h4 className="font-bold text-sm">{s.userName}</h4><p className="text-xs text-gray-400 mb-2">{s.timestamp?.seconds ? new Date(s.timestamp.seconds*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'Just now'}</p>{s.mediaUrl && <div className="mb-2 bg-black rounded h-48 flex justify-center">{s.mediaType==='video'?<video src={s.mediaUrl} controls className="h-full"/>:<img src={s.mediaUrl} className="h-full object-contain" alt="c"/>}</div>}<p className="text-sm">{s.text}</p></div></div>))}</div>
             </div>
           )}
 
