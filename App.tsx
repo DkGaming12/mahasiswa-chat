@@ -12,9 +12,11 @@ import {
   query, where, onSnapshot, addDoc, updateDoc, 
   serverTimestamp, orderBy, limit 
 } from 'firebase/firestore';
-// import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
-// ^^^ UNCOMMENT BARIS DI ATAS SETELAH 'npm install @capacitor/camera'
 
+// --- PENTING: DI LAPTOP, HAPUS TANDA '//' PADA BARIS DI BAWAH INI ---
+// import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
+
+// --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBK0be6JgLVWb71sspT8CLk3rbnzxjWnz4",
   authDomain: "mahasiswa-chat-25e5d.firebaseapp.com",
@@ -64,12 +66,12 @@ interface Message {
   timestamp: any;
 }
 
-// Mock camera untuk fallback jika plugin belum load/di web
+// Mock camera (Agar tidak error di web preview sini)
 const MockCamera = {
-  getPhoto: async () => { throw new Error("Camera not available"); }
+  getPhoto: async () => { throw new Error("Camera plugin not loaded"); }
 };
 
-// Helper agar tidak error saat compile di web, nanti di HP pakai 'Camera' asli
+// Helper aman untuk akses kamera
 const getCamera = () => {
   // @ts-ignore
   return (typeof Camera !== 'undefined') ? Camera : MockCamera;
@@ -166,7 +168,7 @@ export default function App() {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 900 * 1024) return alert("File too large (max 900KB)");
+    if (f.size > 900 * 1024) return alert("File terlalu besar (max 900KB)");
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -183,16 +185,17 @@ export default function App() {
     }
   };
 
-  const capture = async () => {
+  // Fungsi ambil foto/video untuk STATUS
+  const captureStatus = async () => {
     try {
       // @ts-ignore
       const image = await getCamera().getPhoto({
         quality: 50,
         allowEditing: false,
         // @ts-ignore
-        resultType: 'base64', // Fallback string if type not found
+        resultType: 'base64',
         // @ts-ignore
-        source: 'camera',
+        source: 'camera', // Buka kamera langsung
         width: 500
       });
       if (image.dataUrl) {
@@ -200,8 +203,52 @@ export default function App() {
         setMediaType('image');
       }
     } catch (e) {
-      // Fallback to file input if camera fails
       openPicker('image');
+    }
+  };
+
+  // Fungsi GANTI FOTO PROFIL (Pilih dari Galeri)
+  const updatePicFromGallery = async () => {
+    try {
+      // @ts-ignore
+      const image = await getCamera().getPhoto({ 
+        quality: 40, 
+        // @ts-ignore
+        resultType: 'base64', 
+        // @ts-ignore
+        source: 'photos', // <--- INI KUNCINYA: Buka Galeri (Photos)
+        width: 300 
+      });
+      
+      if (image.dataUrl && profile) {
+        await updateDoc(doc(db, 'users', profile.nim), { photoUrl: image.dataUrl });
+        setProfile({ ...profile, photoUrl: image.dataUrl });
+        setEditMode(false);
+        alert("Foto profil berhasil diganti!");
+      }
+    } catch (e) {
+      // Fallback jika di web/error, buka file input biasa
+      if (fileRef.current) {
+         fileRef.current.accept = 'image/*';
+         fileRef.current.onchange = (e: any) => {
+            const f = e.target.files?.[0];
+            if (f) {
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    const b64 = ev.target?.result as string;
+                    if (b64 && profile) {
+                        await updateDoc(doc(db, 'users', profile.nim), { photoUrl: b64 });
+                        setProfile({ ...profile, photoUrl: b64 });
+                        setEditMode(false);
+                        alert("Foto profil berhasil diganti!");
+                    }
+                };
+                reader.readAsDataURL(f);
+            }
+            if(fileRef.current) fileRef.current.onchange = handleFile; // Reset handler
+         };
+         fileRef.current.click();
+      }
     }
   };
 
@@ -221,40 +268,6 @@ export default function App() {
       setPreview(null);
       setMediaType(null);
     } catch (e) { console.error(e); }
-  };
-
-  const updatePic = async () => {
-    try {
-      // @ts-ignore
-      const image = await getCamera().getPhoto({ quality: 40, resultType: 'base64', width: 300 });
-      if (image.dataUrl && profile) {
-        await updateDoc(doc(db, 'users', profile.nim), { photoUrl: image.dataUrl });
-        setProfile({ ...profile, photoUrl: image.dataUrl });
-        setEditMode(false);
-      }
-    } catch (e) {
-      // Fallback
-      if (fileRef.current) {
-         fileRef.current.accept = 'image/*';
-         fileRef.current.onchange = (e: any) => {
-            const f = e.target.files?.[0];
-            if (f) {
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                    const b64 = ev.target?.result as string;
-                    if (b64 && profile) {
-                        await updateDoc(doc(db, 'users', profile.nim), { photoUrl: b64 });
-                        setProfile({ ...profile, photoUrl: b64 });
-                        setEditMode(false);
-                    }
-                };
-                reader.readAsDataURL(f);
-            }
-            if(fileRef.current) fileRef.current.onchange = handleFile; // Reset
-         };
-         fileRef.current.click();
-      }
-    }
   };
 
   const doAuth = async (isReg: boolean) => {
@@ -359,8 +372,8 @@ export default function App() {
 
         {editMode && (
           <div className="p-4 bg-green-50 border-b space-y-2">
-            <button onClick={updatePic} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2">
-              <Camera size={16}/> Ganti Foto
+            <button onClick={updatePicFromGallery} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2 hover:bg-green-50">
+              <ImageIcon size={16}/> Ambil dari Galeri
             </button>
           </div>
         )}
@@ -391,7 +404,7 @@ export default function App() {
                   <div className="flex gap-3 text-gray-500">
                     <button onClick={() => openPicker('image')}><ImageIcon size={18}/></button>
                     <button onClick={() => openPicker('video')}><VideoIcon size={18}/></button>
-                    <button onClick={capture}><Camera size={18}/></button>
+                    <button onClick={captureStatus}><Camera size={18}/></button>
                   </div>
                   <button onClick={sendStatus} disabled={!statusTxt && !preview} className="bg-green-600 text-white px-4 py-1 rounded-full text-xs font-bold">KIRIM</button>
                 </div>
