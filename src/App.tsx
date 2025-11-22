@@ -10,7 +10,7 @@ import {
 import { 
   getFirestore, collection, doc, setDoc, getDoc, 
   query, where, onSnapshot, addDoc, updateDoc, 
-  serverTimestamp, orderBy, limit, writeBatch 
+  serverTimestamp, orderBy, limit, writeBatch, getDocs // getDocs dan writeBatch ditambahkan
 } from 'firebase/firestore';
 
 // --- PENTING: DI LAPTOP, HAPUS TANDA '//' DI BAWAH INI JIKA INGIN MENGGUNAKAN KAMERA HP ---
@@ -28,7 +28,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-
 // --- TYPES ---
 interface UserProfile {
   nim: string; name: string; password?: string; uid: string; jurusan?: string; photoUrl?: string; 
@@ -44,7 +43,7 @@ interface Message {
 }
 
 // --- COMPONENT CHAT ITEM (LOGIKA ALA WHATSAPP) ---
-const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { nim: string, name: string, photoUrl: string }, currentUser: UserProfile, onClick: () => void, isActive: boolean }) => {
+const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { nim: string, name: string, photoUrl: string, requestId: string }, currentUser: UserProfile, onClick: () => void, isActive: boolean }) => {
   const [lastMsg, setLastMsg] = useState<Message | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -57,7 +56,8 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(d => d.data() as Message);
       if (msgs.length > 0) {
-        setLastMsg(msgs[0]);
+        setLastMsg(msgs[0]); // Pesan paling baru
+        // Hitung pesan yang dikirim TEMAN dan status read-nya false
         const unread = msgs.filter(m => m.senderNim !== currentUser.nim && !m.read).length;
         setUnreadCount(unread);
       }
@@ -69,6 +69,7 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
 
   const formatTime = (timestamp: any) => {
     if (!timestamp) return '';
+    // Format Jam:Menit (Contoh: 14:30)
     return new Date(timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
   };
 
@@ -80,12 +81,14 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-1">
           <h3 className="font-bold text-gray-900 text-sm truncate">{friend.name}</h3>
+          {/* Waktu berwarna Hijau jika ada pesan baru */}
           <span className={`text-[11px] ${unreadCount > 0 ? 'text-green-600 font-bold' : 'text-gray-400'}`}>
             {lastMsg ? formatTime(lastMsg.timestamp) : ''}
           </span>
         </div>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-1 text-sm text-gray-500 truncate pr-2 w-full">
+            {/* Tanda Centang (Hanya jika pesan terakhir dari SAYA) */}
             {lastMsg && lastMsg.senderNim === currentUser?.nim && (
               <span>
                 {lastMsg.read ? (
@@ -123,6 +126,7 @@ export default function App() {
   const [tab, setTab] = useState<'chats' | 'status' | 'add' | 'requests'>('chats');
   const [chatId, setChatId] = useState<string | null>(null);
   const [chatName, setChatName] = useState<string>('');
+  const [currentFriendRequestId, setCurrentFriendRequestId] = useState<string | null>(null); // State baru untuk ID permintaan pertemanan
   
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
   const [friends, setFriends] = useState<FriendRequest[]>([]);
@@ -256,12 +260,60 @@ export default function App() {
     setLoading(false);
   };
 
+  // --- FITUR ANTI-SPAM PERMINTAAN PERTEMANAN ---
   const sendReq = async () => {
     if (!search || !profile || search === profile.nim) return;
-    const target = await getDoc(doc(db, 'users', search));
-    if (target.exists()) { await addDoc(collection(db, 'requests'), { fromNim: profile.nim, fromName: profile.name, toNim: search, status: 'pending', timestamp: serverTimestamp() }); setSearch(''); setTab('chats'); alert("Request terkirim"); } else alert("User tidak ditemukan");
-  };
+    setLoading(true);
 
+    try {
+      // 1. Cek apakah NIM tujuan ada
+      const target = await getDoc(doc(db, 'users', search));
+      if (!target.exists()) {
+        alert("User tidak ditemukan");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Cek apakah sudah ada permintaan (pending atau accepted)
+      const nim1 = profile.nim;
+      const nim2 = search;
+
+      const existingQuery = query(
+        collection(db, 'requests'),
+        where('status', 'in', ['pending', 'accepted']),
+        where('toNim', 'in', [nim1, nim2]),
+        where('fromNim', 'in', [nim1, nim2])
+      );
+
+      const existingSnap = await getDocs(existingQuery);
+
+      if (!existingSnap.empty) {
+        alert("Permintaan pertemanan sudah dikirim atau Anda sudah berteman.");
+        setSearch('');
+        setTab('chats');
+        setLoading(false);
+        return;
+      }
+
+      // 3. Kirim permintaan baru
+      await addDoc(collection(db, 'requests'), { 
+        fromNim: profile.nim, 
+        fromName: profile.name, 
+        toNim: search, 
+        status: 'pending', 
+        timestamp: serverTimestamp() 
+      });
+      
+      setSearch(''); 
+      setTab('chats'); 
+      alert("Request terkirim"); 
+
+    } catch (e: any) { 
+      alert(e.message || "Gagal mengirim permintaan."); 
+    }
+    setLoading(false);
+  };
+  
   const reply = async (id: string, status: 'accepted'|'rejected') => await updateDoc(doc(db, 'requests', id), { status });
   
   const send = async () => {
@@ -269,6 +321,51 @@ export default function App() {
     const id = [profile.nim, chatId].sort().join('_');
     const t = txt; setTxt('');
     await addDoc(collection(db, `chats_${id}`), { senderNim: profile.nim, text: t, timestamp: serverTimestamp(), read: false });
+  };
+
+  // --- FITUR HAPUS CHAT ---
+  const deleteChat = async (friendNim: string, requestId: string) => {
+    if (!profile || !friendNim || !requestId) return;
+
+    if (!window.confirm(`Yakin ingin menghapus chat dengan ${chatName}? Catatan pertemanan dan pesan akan hilang permanen.`)) {
+        return;
+    }
+    
+    setLoading(true);
+    try {
+        const batch = writeBatch(db);
+        const chatColId = [profile.nim, friendNim].sort().join('_');
+        const chatColRef = collection(db, `chats_${chatColId}`);
+        
+        // 1. Hapus semua pesan di koleksi chat (ambil 50 dokumen pertama sebagai simulasi)
+        const q = query(chatColRef, limit(50));
+        const messagesSnapshot = await getDocs(q);
+        
+        if (messagesSnapshot.size > 0) {
+            messagesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+        }
+
+        // 2. Hapus record permintaan pertemanan (accepted)
+        batch.delete(doc(db, 'requests', requestId));
+
+        await batch.commit();
+
+        setChatId(null);
+        setChatName('');
+        setCurrentFriendRequestId(null);
+
+        alert("Chat berhasil dihapus.");
+
+        // Pemberitahuan tambahan untuk koleksi besar
+        if (messagesSnapshot.size === 50) {
+             alert("Perhatian: Mungkin masih ada pesan lama yang tersisa. Pada aplikasi nyata, fitur ini memerlukan Cloud Function untuk menghapus seluruh koleksi secara aman.");
+        }
+
+    } catch (error) {
+        console.error("Gagal menghapus chat:", error);
+        alert("Gagal menghapus chat. Cek konsol untuk detail.");
+    }
+    setLoading(false);
   };
 
   const Avatar = ({ seed, url }: { seed: string, url?: string }) => ( <img src={url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`} className="w-10 h-10 rounded-full bg-gray-200 object-cover border" alt="avt" /> );
@@ -315,7 +412,7 @@ export default function App() {
         
         <div className="flex border-b bg-white">
           {['chats', 'status', 'add', 'requests'].map(t => (
-            <button key={t} onClick={() => setTab(t as any)} className={`flex-1 py-3 text-xs font-bold uppercase ${tab===t?'text-green-600 border-b-2 border-green-600':'text-gray-400'}`}>{t}</button>
+            <button key={t} onClick={() => setTab(t as any)} className={`flex-1 py-3 text-xs font-bold uppercase ${tab===t?'text-green-600 border-b-2 border-green-600' : 'text-gray-400'}`}>{t}</button>
           ))}
         </div>
 
@@ -323,13 +420,23 @@ export default function App() {
           {tab === 'chats' && (
             <div>
               {friends.length === 0 ? <div className="text-center p-8 text-gray-400 text-sm">Belum ada chat.</div> : friends.map(f => {
-                const p = f.fromNim===profile?.nim ? {nim:f.toNim, name:`Mahasiswa ${f.toNim}`, photoUrl:f.photoUrl} : {nim:f.fromNim, name:f.fromName, photoUrl:f.photoUrl};
+                const isMeFrom = f.fromNim === profile?.nim;
+                const friendNim = isMeFrom ? f.toNim : f.fromNim;
+                const friendName = isMeFrom ? `Mahasiswa ${f.toNim}` : f.fromName;
+                const friendPhotoUrl = f.photoUrl;
+
+                const p = { nim: friendNim, name: friendName, photoUrl: friendPhotoUrl, requestId: f.id };
+                
                 return (
                   <ChatListItem 
                     key={f.id} 
                     friend={p} 
                     currentUser={profile} 
-                    onClick={() => { setChatId(p.nim); setChatName(p.name); }}
+                    onClick={() => { 
+                      setChatId(p.nim); 
+                      setChatName(p.name); 
+                      setCurrentFriendRequestId(p.requestId); // Simpan ID request
+                    }}
                     isActive={chatId === p.nim}
                   />
                 )
@@ -351,7 +458,7 @@ export default function App() {
             </div>
           )}
 
-          {tab === 'add' && (<div className="p-4 flex gap-2"><input className="flex-1 border rounded px-3 text-sm" placeholder="Cari NIM..." value={search} onChange={e=>setSearch(e.target.value)} /><button onClick={sendReq} className="bg-green-600 text-white p-2 rounded"><Send size={18}/></button></div>)}
+          {tab === 'add' && (<div className="p-4 flex gap-2"><input className="flex-1 border rounded px-3 text-sm" placeholder="Cari NIM..." value={search} onChange={e=>setSearch(e.target.value)} /><button onClick={sendReq} disabled={loading} className="bg-green-600 text-white p-2 rounded"><Send size={18}/></button></div>)}
           {tab === 'requests' && reqs.map(r => (<div key={r.id} className="p-3 border-b flex justify-between items-center"><div><p className="font-bold text-sm">{r.fromName}</p><p className="text-xs">{r.fromNim}</p></div><div className="flex gap-2"><button onClick={()=>reply(r.id,'rejected')} className="text-red-500"><X/></button><button onClick={()=>reply(r.id,'accepted')} className="text-green-500"><Check/></button></div></div>))}
         </div>
       </div>
@@ -363,7 +470,22 @@ export default function App() {
         ) : (
           <>
             <div className="bg-gray-100 p-2 border-b flex items-center gap-3 shadow-sm">
-              <button onClick={()=>setChatId(null)} className="md:hidden"><ArrowLeft/></button><Avatar seed={chatName} /><div className="flex-1"><h3 className="font-bold text-sm">{chatName}</h3><p className="text-xs text-gray-500">Online</p></div>
+              <button onClick={() => { setChatId(null); setCurrentFriendRequestId(null); }} className="md:hidden"><ArrowLeft/></button>
+              <Avatar seed={chatName} />
+              <div className="flex-1">
+                <h3 className="font-bold text-sm">{chatName}</h3>
+                <p className="text-xs text-gray-500">Online</p>
+              </div>
+              {/* Tombol Hapus Chat Baru */}
+              <button 
+                onClick={() => deleteChat(chatId, currentFriendRequestId!)} 
+                disabled={loading}
+                className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors"
+                title="Hapus Chat"
+              >
+                {loading && <Loader2 className="animate-spin w-5 h-5 text-gray-500"/>}
+                {!loading && <Trash2 size={20}/>}
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {msgs.map(m => (
