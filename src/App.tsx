@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, User, Plus, Check, X, LogOut, 
-  Search, Send, ArrowLeft, Camera as CameraIcon, Image as ImageIcon, Video as VideoIcon, Trash2, Loader2, Paperclip 
+  Search, Send, ArrowLeft, Camera, Image as ImageIcon, Video as VideoIcon, Trash2, Loader2, Paperclip 
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -12,9 +12,6 @@ import {
   query, where, onSnapshot, addDoc, updateDoc, 
   serverTimestamp, orderBy, limit 
 } from 'firebase/firestore';
-
-// --- PENTING: DI LAPTOP, HAPUS TANDA '//' PADA BARIS DI BAWAH INI AGAR KAMERA JALAN ---
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -29,12 +26,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Helper aman untuk akses kamera
-const getCamera = () => {
-  // @ts-ignore
-  return (typeof Camera !== 'undefined') ? Camera : MockCamera;
-};
-
 // --- TYPES ---
 interface UserProfile {
   nim: string; name: string; password?: string; uid: string; jurusan?: string; photoUrl?: string; 
@@ -46,7 +37,7 @@ interface FriendRequest {
   id: string; fromNim: string; fromName: string; toNim: string; status: 'pending' | 'accepted' | 'rejected'; timestamp: any;
 }
 interface Message {
-  id: string; senderNim: string; text: string; timestamp: any; mediaUrl?: string; mediaType?: 'image'|'video'|'audio'|'voice';
+  id: string; senderNim: string; text: string; timestamp: any; mediaUrl?: string; mediaType?: 'image'|'video';
 }
 
 export default function App() {
@@ -65,10 +56,12 @@ export default function App() {
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [feeds, setFeeds] = useState<UserStatus[]>([]);
   
+  // Form states
   const [form, setForm] = useState({ nim: '', pass: '', name: '', major: '' });
   const [search, setSearch] = useState('');
   const [txt, setTxt] = useState('');
   
+  // Status creation & Media
   const [statusTxt, setStatusTxt] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
   const [MediaType, setMediaType] = useState<'image' | 'video' | null>(null);
@@ -77,9 +70,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const dummyRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null); 
+  
+  // INPUT FILE REFS (Jalan Ninja untuk Web)
+  const profileFileRef = useRef<HTMLInputElement>(null); 
+  const statusFileRef = useRef<HTMLInputElement>(null); 
   const chatFileRef = useRef<HTMLInputElement>(null);
-  const profileFileRef = useRef<HTMLInputElement>(null);
 
   // Auth Init
   useEffect(() => {
@@ -112,14 +107,17 @@ export default function App() {
     });
   }, [profile, chatId]);
 
-  // --- HANDLERS FILE ---
+  // --- HANDLERS FILE (WEB COMPATIBLE) ---
   const readFile = (file: File, callback: (base64: string, type: 'image'|'video') => void) => {
+    // Batas 1.5MB biar Firestore gak marah
     if (file.size > 1.5 * 1024 * 1024) return alert("File terlalu besar (Max 1.5MB)");
+    
     const reader = new FileReader();
     reader.onload = (ev) => callback(ev.target?.result as string, file.type.startsWith('video') ? 'video' : 'image');
     reader.readAsDataURL(file);
   };
 
+  // 1. GANTI FOTO PROFIL
   const handleProfileFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f && profile) {
@@ -132,23 +130,7 @@ export default function App() {
     }
   };
 
-  const triggerChangeProfile = async () => {
-    // @ts-ignore
-    if (typeof Camera !== 'undefined') {
-      try {
-        // @ts-ignore
-        const image = await Camera.getPhoto({ quality: 50, allowEditing: false, resultType: 'base64', source: 'photos', width: 300 });
-        if (image.dataUrl && profile) {
-          await updateDoc(doc(db, 'users', profile.nim), { photoUrl: image.dataUrl });
-          setProfile({ ...profile, photoUrl: image.dataUrl });
-          setEditMode(false);
-        }
-      } catch (e) { profileFileRef.current?.click(); }
-    } else {
-      profileFileRef.current?.click();
-    }
-  };
-
+  // 2. STATUS FILE
   const handleStatusFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) readFile(f, (b64, type) => { setPreview(b64); setMediaType(type); });
@@ -165,6 +147,7 @@ export default function App() {
     } catch (e) { alert("Gagal upload status"); }
   };
 
+  // 3. CHAT FILE
   const handleChatFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f && profile && chatId) {
@@ -242,10 +225,12 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100">
+      {/* INPUTS FILE TERSEMBUNYI (Jalan Ninja Web) */}
       <input type="file" ref={profileFileRef} className="hidden" accept="image/*" onChange={handleProfileFile} />
       <input type="file" ref={statusFileRef} className="hidden" accept="image/*,video/*" onChange={handleStatusFile} />
       <input type="file" ref={chatFileRef} className="hidden" accept="image/*,video/*" onChange={handleChatFile} />
 
+      {/* SIDEBAR */}
       <div className={`w-full md:w-1/3 bg-white border-r flex flex-col ${chatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setEditMode(!editMode)}>
@@ -257,8 +242,9 @@ export default function App() {
 
         {editMode && (
           <div className="p-4 bg-green-50 border-b space-y-2">
-            <button onClick={triggerChangeProfile} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2 hover:bg-green-100">
-              <ImageIcon size={16}/> Ganti Foto Profil (Galeri)
+            {/* Tombol ini langsung membuka File Explorer Web/HP */}
+            <button onClick={() => profileFileRef.current?.click()} className="w-full bg-white border border-green-600 text-green-600 py-2 rounded text-sm flex justify-center gap-2 hover:bg-green-100">
+              <ImageIcon size={16}/> Ganti Foto Profil
             </button>
           </div>
         )}
@@ -270,12 +256,14 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto bg-white">
+          {/* TAB STATUS */}
           {tab === 'status' && (
             <div>
               <div className="p-4 border-b bg-gray-50 space-y-3">
                 <div className="flex gap-3"><Avatar seed={profile?.name||''} url={profile?.photoUrl} /><input className="flex-1 bg-transparent text-sm outline-none" placeholder="Buat status..." value={statusTxt} onChange={e=>setStatusTxt(e.target.value)} /></div>
                 {preview && <div className="relative bg-black rounded-lg h-32 flex justify-center items-center">{MediaType==='video'?<video src={preview} controls className="h-full"/>:<img src={preview} className="h-full object-contain" alt="pv"/>}<button onClick={()=>{setPreview(null);setMediaType(null)}} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full"><X size={12}/></button></div>}
                 <div className="flex justify-between pt-2">
+                  {/* Tombol Attach Media */}
                   <button onClick={()=>statusFileRef.current?.click()} className="text-gray-500"><ImageIcon size={20}/></button>
                   <button onClick={sendStatus} disabled={!statusTxt && !preview} className="bg-green-600 text-white px-4 py-1 rounded-full text-xs font-bold">KIRIM</button>
                 </div>
