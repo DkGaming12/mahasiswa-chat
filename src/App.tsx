@@ -13,7 +13,7 @@ import {
   serverTimestamp, orderBy, limit, writeBatch 
 } from 'firebase/firestore';
 
-// --- PENTING: DI LAPTOP, HAPUS TANDA '//' DI BAWAH INI ---
+// --- PENTING: DI LAPTOP, HAPUS TANDA '//' DI BAWAH INI JIKA INGIN MENGGUNAKAN KAMERA HP ---
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'; 
 
 const firebaseConfig = {
@@ -52,14 +52,12 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
     if (!currentUser || !friend) return;
 
     const chatId = [currentUser.nim, friend.nim].sort().join('_');
-    // Ambil 50 pesan terakhir untuk cek unread
     const q = query(collection(db, `chats_${chatId}`), orderBy('timestamp', 'desc'), limit(50));
     
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(d => d.data() as Message);
       if (msgs.length > 0) {
-        setLastMsg(msgs[0]); // Pesan paling baru
-        // Hitung pesan yang dikirim TEMAN dan status read-nya false
+        setLastMsg(msgs[0]);
         const unread = msgs.filter(m => m.senderNim !== currentUser.nim && !m.read).length;
         setUnreadCount(unread);
       }
@@ -71,7 +69,6 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
 
   const formatTime = (timestamp: any) => {
     if (!timestamp) return '';
-    // Format Jam:Menit (Contoh: 14:30)
     return new Date(timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
   };
 
@@ -83,14 +80,12 @@ const ChatListItem = ({ friend, currentUser, onClick, isActive }: { friend: { ni
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-1">
           <h3 className="font-bold text-gray-900 text-sm truncate">{friend.name}</h3>
-          {/* Waktu berwarna Hijau jika ada pesan baru */}
           <span className={`text-[11px] ${unreadCount > 0 ? 'text-green-600 font-bold' : 'text-gray-400'}`}>
             {lastMsg ? formatTime(lastMsg.timestamp) : ''}
           </span>
         </div>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-1 text-sm text-gray-500 truncate pr-2 w-full">
-            {/* Tanda Centang (Hanya jika pesan terakhir dari SAYA) */}
             {lastMsg && lastMsg.senderNim === currentUser?.nim && (
               <span>
                 {lastMsg.read ? (
@@ -237,7 +232,7 @@ export default function App() {
   };
 
   const takeChatPhoto = () => {
-    // Fallback ke file input di web, tidak ada kamera native
+    // Di web, ini adalah fallback untuk membuka file input.
     chatFileRef.current?.click();
   };
 
@@ -288,7 +283,7 @@ export default function App() {
             <input className="w-full px-4 py-2 border rounded-lg" value={form.nim} onChange={e=>setForm({...form, nim:e.target.value.replace(/\D/g,'')})} placeholder="NIM" />
             {view === 'register' && (<><input className="w-full px-4 py-2 border rounded-lg" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Nama" /><input className="w-full px-4 py-2 border rounded-lg" value={form.major} onChange={e=>setForm({...form, major:e.target.value})} placeholder="Jurusan" /></>)}
             <input type="password" className="w-full px-4 py-2 border rounded-lg" value={form.pass} onChange={e=>setForm({...form, pass:e.target.value})} placeholder="Password" />
-            <button onClick={()=>doAuth(view==='register')} disabled={loading} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg flex justify-center gap-2">{loading?<Loader2 className="animate-spin"/>:(view==='login'?'Masuk':'Daftar')}</button>
+            <button onClick={()=>doAuth(view==='register')} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg flex justify-center gap-2">{loading?<Loader2 className="animate-spin"/>:(view==='login'?'Masuk':'Daftar')}</button>
             <button onClick={()=>setView(view==='login'?'register':'login')} className="w-full text-sm text-green-600 hover:underline mt-2">{view==='login'?'Buat Akun Baru':'Sudah punya akun?'}</button>
             <p className="text-[10px] text-center text-gray-500 font-medium">UIN K.H. Abdurrahman Wahid Pekalongan</p>
           </div>
